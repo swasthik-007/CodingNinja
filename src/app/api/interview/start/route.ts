@@ -7,6 +7,14 @@ export async function POST(request: NextRequest) {
   try {
     const body: StartInterviewRequest = await request.json();
     
+    // Validate required fields
+    if (!body.candidateName || !body.candidateEmail) {
+      return NextResponse.json(
+        { error: 'Candidate name and email are required' },
+        { status: 400 }
+      );
+    }
+    
     // Create new interview session
     const interview = await prisma.interview.create({
       data: {
@@ -16,12 +24,22 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Generate first question
-    const firstQuestion = await aiService.generateQuestion(
-      'BASIC_OPERATIONS',
-      'BEGINNER',
-      1
-    );
+    // Generate first question with fallback
+    let firstQuestion;
+    try {
+      firstQuestion = await aiService.generateQuestion(
+        'BASIC_OPERATIONS',
+        'BEGINNER',
+        1
+      );
+    } catch (aiError) {
+      console.error('Error generating first question:', aiError);
+      // Fallback question
+      firstQuestion = {
+        question: 'What are the basic operations you can perform in Microsoft Excel?',
+        expectedAnswer: 'Basic operations include data entry, formatting cells, creating formulas, using functions like SUM, creating charts, and organizing data.',
+      };
+    }
 
     // Save the first question
     const question = await prisma.question.create({
@@ -51,8 +69,14 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error starting interview:', error);
     return NextResponse.json(
-      { error: 'Failed to start interview' },
+      { 
+        error: 'Failed to start interview',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     );
   }
 }
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;

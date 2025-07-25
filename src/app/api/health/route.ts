@@ -7,3 +7,6 @@ export async function GET() {
     service: 'Excel Mock Interviewer API',
   });
 }
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
