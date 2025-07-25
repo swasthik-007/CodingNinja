@@ -18,57 +18,78 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    
-    // Create new interview session
-    const interview = await prisma.interview.create({
-      data: {
-        candidateName: candidateName,
-        candidateEmail: candidateEmail,
-        status: 'IN_PROGRESS',
-      },
-    });
 
-    // Generate first question with fallback
-    let firstQuestion;
+    // For demonstration purposes, return mock data if database fails
     try {
-      firstQuestion = await aiService.generateQuestion(
-        'BASIC_OPERATIONS',
-        'BEGINNER',
-        1
-      );
-    } catch (aiError) {
-      console.error('Error generating first question:', aiError);
-      // Fallback question
-      firstQuestion = {
-        question: 'What are the basic operations you can perform in Microsoft Excel?',
-        expectedAnswer: 'Basic operations include data entry, formatting cells, creating formulas, using functions like SUM, creating charts, and organizing data.',
-      };
-    }
+      // Create new interview session
+      const interview = await prisma.interview.create({
+        data: {
+          candidateName: candidateName,
+          candidateEmail: candidateEmail,
+          status: 'IN_PROGRESS',
+        },
+      });
 
-    // Save the first question
-    const question = await prisma.question.create({
-      data: {
+      // Generate first question with fallback
+      let firstQuestion;
+      try {
+        firstQuestion = await aiService.generateQuestion(
+          'BASIC_OPERATIONS',
+          'BEGINNER',
+          1
+        );
+      } catch (aiError) {
+        console.error('Error generating first question:', aiError);
+        // Fallback question
+        firstQuestion = {
+          question: 'What are the basic operations you can perform in Microsoft Excel?',
+          expectedAnswer: 'Basic operations include data entry, formatting cells, creating formulas, using functions like SUM, creating charts, and organizing data.',
+        };
+      }
+
+      // Save the first question
+      const question = await prisma.question.create({
+        data: {
+          interviewId: interview.id,
+          questionText: firstQuestion.question,
+          category: 'BASIC_OPERATIONS',
+          difficulty: 'BEGINNER',
+          expectedAnswer: firstQuestion.expectedAnswer,
+          points: 10,
+          order: 1,
+        },
+      });
+
+      return NextResponse.json({
         interviewId: interview.id,
-        questionText: firstQuestion.question,
-        category: 'BASIC_OPERATIONS',
-        difficulty: 'BEGINNER',
-        expectedAnswer: firstQuestion.expectedAnswer,
-        points: 10,
-        order: 1,
-      },
-    });
+        question: {
+          id: question.id,
+          text: question.questionText,
+          category: question.category,
+          difficulty: question.difficulty,
+          order: question.order,
+        },
+        message: "Welcome to the Excel Mock Interview! I'm your AI interviewer, and I'll be assessing your Excel skills today. Let's begin with the first question."
+      });
 
-    return NextResponse.json({
-      interviewId: interview.id,
-      question: {
-        id: question.id,
-        text: question.questionText,
-        category: question.category,
-        difficulty: question.difficulty,
-        order: question.order,
-      },
-      message: "Welcome to the Excel Mock Interview! I'm your AI interviewer, and I'll be assessing your Excel skills today. Let's begin with the first question."
-    });
+    } catch (dbError) {
+      console.error('Database error, returning demo mode:', dbError);
+      
+      // Return demo mode response
+      const mockId = 'demo-' + Date.now();
+      return NextResponse.json({
+        interviewId: mockId,
+        question: {
+          id: 'demo-q1',
+          text: 'What are the basic operations you can perform in Microsoft Excel?',
+          category: 'BASIC_OPERATIONS',
+          difficulty: 'BEGINNER',
+          order: 1,
+        },
+        message: "Welcome to the Excel Mock Interview Demo! I'm your AI interviewer. Note: This is running in demo mode.",
+        demoMode: true
+      });
+    }
 
   } catch (error) {
     console.error('Error starting interview:', error);
