@@ -17,93 +17,134 @@ export async function GET(
       );
     }
 
-    // Check if this is demo mode
-    if (interviewId.startsWith('demo-')) {
-      return NextResponse.json({
-        interview: {
-          id: interviewId,
-          candidateName: 'Demo User',
-          candidateEmail: 'demo@example.com',
-          startedAt: new Date(),
-          completedAt: new Date(),
-          totalScore: 8.2,
-          status: 'COMPLETED',
+    // Get interview with all questions and answers from database
+    const interview = await prisma.interview.findUnique({
+      where: { id: interviewId },
+      include: {
+        questions: {
+          orderBy: { order: 'asc' },
+          include: { answer: true },
         },
-        performance: {
-          overallScore: 8.2,
-          categoryScores: {
-            'BASIC_OPERATIONS': 8.5,
-            'FORMULAS_FUNCTIONS': 8.0,
-            'DATA_ANALYSIS': 8.0,
-            'PIVOT_TABLES': 8.0,
-            'PROBLEM_SOLVING': 8.5,
-          },
-          questionsAnswered: 5,
-          totalQuestions: 5,
-        },
-        feedback: {
-          overallFeedback: 'Excellent performance in the demo interview! You demonstrated good understanding of Excel fundamentals.',
-          strengths: ['Clear communication', 'Good Excel knowledge', 'Problem-solving approach'],
-          areasForImprovement: ['Advanced formulas', 'Complex pivot tables'],
-          recommendations: ['Practice more advanced Excel functions', 'Explore PowerQuery and PowerPivot'],
-        },
-        questions: [
-          {
-            id: 'demo-q1',
-            question: 'What are the basic operations you can perform in Microsoft Excel?',
-            category: 'BASIC_OPERATIONS',
-            difficulty: 'BEGINNER',
-            answer: {
-              text: 'Sample answer provided',
-              score: 8,
-              feedback: 'Good understanding of basic operations',
-            },
-          },
-        ],
-        demoMode: true
-      });
+        answers: true,
+      },
+    });
+
+    if (!interview) {
+      return NextResponse.json(
+        { error: 'Interview not found' },
+        { status: 404 }
+      );
     }
 
-    // For regular interviews, return demo data due to database unavailability
-    return NextResponse.json({
+    // Calculate scores by category from actual data
+    const categoryScores: Record<string, number[]> = {};
+    const allScores: number[] = [];
+
+    interview.questions.forEach((question: any) => {
+      if (question.answer && question.answer.score !== null) {
+        const category = question.category;
+        const score = question.answer.score || 0;
+        
+        if (!categoryScores[category]) {
+          categoryScores[category] = [];
+        }
+        categoryScores[category].push(score);
+        allScores.push(score);
+      }
+    });
+
+    // Calculate average scores from actual data
+    const categoryAverages: Record<string, number> = {};
+    Object.entries(categoryScores).forEach(([category, scores]) => {
+      categoryAverages[category] = calculateOverallScore(scores);
+    });
+
+    const overallScore = calculateOverallScore(allScores);
+
+    // Generate AI summary based on actual answers
+    let aiSummary;
+    try {
+      const answersForSummary = interview.questions
+        .filter((q: any) => q.answer)
+        .map((q: any) => ({
+          question: q.questionText,
+          answer: q.answer.answerText,
+          score: q.answer.score || 0,
+          category: q.category as any,
+        }));
+
+      if (answersForSummary.length > 0) {
+        aiSummary = await aiService.generateInterviewSummary(answersForSummary);
+      } else {
+        throw new Error('No answers found for summary');
+      }
+    } catch (aiError) {
+      console.error('Error generating AI summary:', aiError);
+      // Fallback summary based on actual scores
+      const avgScore = overallScore;
+      aiSummary = {
+        overallFeedback: `Interview completed with an overall score of ${avgScore.toFixed(1)}/10. ${
+          avgScore >= 8 ? 'Excellent performance!' : 
+          avgScore >= 6 ? 'Good performance with room for improvement.' :
+          'Consider reviewing Excel fundamentals for better results.'
+        }`,
+        strengths: avgScore >= 7 ? ['Demonstrated Excel knowledge', 'Clear communication'] : ['Participated in the interview process'],
+        areasForImprovement: avgScore < 8 ? ['Excel formula proficiency', 'Advanced features knowledge'] : ['Advanced Excel techniques'],
+        recommendations: avgScore >= 7 ? ['Explore advanced Excel features', 'Practice complex scenarios'] : ['Review Excel fundamentals', 'Practice basic operations'],
+      };
+    }
+
+    // Update interview with final score and feedback
+    try {
+      await prisma.interview.update({
+        where: { id: interviewId },
+        data: {
+          totalScore: overallScore,
+          feedback: aiSummary.overallFeedback,
+        },
+      });
+    } catch (updateError) {
+      console.error('Error updating interview:', updateError);
+      // Continue without updating if there's an issue
+    }
+
+    // Return actual data-driven report
+    const report = {
       interview: {
-        id: interviewId,
-        candidateName: 'Interview Candidate',
-        candidateEmail: 'candidate@example.com',
-        startedAt: new Date(),
-        completedAt: new Date(),
-        totalScore: 7.5,
-        status: 'COMPLETED',
+        id: interview.id,
+        candidateName: interview.candidateName,
+        candidateEmail: interview.candidateEmail,
+        startedAt: interview.startedAt,
+        completedAt: interview.completedAt,
+        totalScore: overallScore,
+        status: interview.status,
       },
       performance: {
-        overallScore: 7.5,
-        categoryScores: {
-          'BASIC_OPERATIONS': 7.5,
-        },
-        questionsAnswered: 1,
-        totalQuestions: 5,
+        overallScore,
+        categoryScores: categoryAverages,
+        questionsAnswered: interview.answers.length,
+        totalQuestions: interview.questions.length,
       },
       feedback: {
-        overallFeedback: 'Interview completed successfully. This is a demo report due to database unavailability.',
-        strengths: ['Participated in the interview process'],
-        areasForImprovement: ['Continue practicing Excel skills'],
-        recommendations: ['Review Excel fundamentals and best practices'],
+        overallFeedback: aiSummary.overallFeedback,
+        strengths: aiSummary.strengths,
+        areasForImprovement: aiSummary.areasForImprovement,
+        recommendations: aiSummary.recommendations,
       },
-      questions: [
-        {
-          id: 'demo-q1',
-          question: 'Sample question',
-          category: 'BASIC_OPERATIONS',
-          difficulty: 'BEGINNER',
-          answer: {
-            text: 'Sample answer',
-            score: 7.5,
-            feedback: 'Good effort',
-          },
-        },
-      ],
-      demoMode: true
-    });
+      questions: interview.questions.map((q: any) => ({
+        id: q.id,
+        question: q.questionText,
+        category: q.category,
+        difficulty: q.difficulty,
+        answer: q.answer ? {
+          text: q.answer.answerText,
+          score: q.answer.score,
+          feedback: q.answer.feedback,
+        } : null,
+      })),
+    };
+
+    return NextResponse.json(report);
 
   } catch (error) {
     console.error('Error generating report:', error);
