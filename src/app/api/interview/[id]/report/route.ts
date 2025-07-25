@@ -10,6 +10,13 @@ export async function GET(
   try {
     const interviewId = params.id;
 
+    if (!interviewId) {
+      return NextResponse.json(
+        { error: 'Interview ID is required' },
+        { status: 400 }
+      );
+    }
+
     // Get interview with all questions and answers
     const interview = await prisma.interview.findUnique({
       where: { id: interviewId },
@@ -33,8 +40,8 @@ export async function GET(
     const categoryScores: Record<string, number[]> = {};
     const allScores: number[] = [];
 
-    interview.questions.forEach((question) => {
-      if (question.answer) {
+    interview.questions.forEach((question: any) => {
+      if (question.answer && question.answer.score !== null) {
         const category = question.category;
         const score = question.answer.score || 0;
         
@@ -54,26 +61,47 @@ export async function GET(
 
     const overallScore = calculateOverallScore(allScores);
 
-    // Generate AI summary
-    const answersForSummary = interview.questions
-      .filter(q => q.answer)
-      .map(q => ({
-        question: q.questionText,
-        answer: q.answer!.answerText,
-        score: q.answer!.score || 0,
-        category: q.category as any,
-      }));
+    // Generate AI summary with fallback
+    let aiSummary;
+    try {
+      const answersForSummary = interview.questions
+        .filter((q: any) => q.answer)
+        .map((q: any) => ({
+          question: q.questionText,
+          answer: q.answer!.answerText,
+          score: q.answer!.score || 0,
+          category: q.category as any,
+        }));
 
-    const aiSummary = await aiService.generateInterviewSummary(answersForSummary);
+      if (answersForSummary.length > 0) {
+        aiSummary = await aiService.generateInterviewSummary(answersForSummary);
+      } else {
+        throw new Error('No answers found for summary');
+      }
+    } catch (aiError) {
+      console.error('Error generating AI summary:', aiError);
+      // Fallback summary
+      aiSummary = {
+        overallFeedback: 'Interview completed successfully. Performance analysis is temporarily unavailable.',
+        strengths: ['Participated in the interview process'],
+        areasForImprovement: ['Continue practicing Excel skills'],
+        recommendations: ['Review Excel fundamentals and best practices'],
+      };
+    }
 
     // Update interview with final score and feedback
-    await prisma.interview.update({
-      where: { id: interviewId },
-      data: {
-        totalScore: overallScore,
-        feedback: aiSummary.overallFeedback,
-      },
-    });
+    try {
+      await prisma.interview.update({
+        where: { id: interviewId },
+        data: {
+          totalScore: overallScore,
+          feedback: aiSummary.overallFeedback,
+        },
+      });
+    } catch (updateError) {
+      console.error('Error updating interview:', updateError);
+      // Continue without updating if there's an issue
+    }
 
     const report = {
       interview: {
@@ -97,7 +125,7 @@ export async function GET(
         areasForImprovement: aiSummary.areasForImprovement,
         recommendations: aiSummary.recommendations,
       },
-      questions: interview.questions.map(q => ({
+      questions: interview.questions.map((q: any) => ({
         id: q.id,
         question: q.questionText,
         category: q.category,
@@ -115,8 +143,14 @@ export async function GET(
   } catch (error) {
     console.error('Error generating report:', error);
     return NextResponse.json(
-      { error: 'Failed to generate report' },
+      { 
+        error: 'Failed to generate report',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     );
   }
 }
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
