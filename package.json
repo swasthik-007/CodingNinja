@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:ignore-errors": "next build --no-lint",
     "start": "next start",
     "lint": "next lint",
+    "lint:fix": "next lint --fix",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
