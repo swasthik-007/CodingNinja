@@ -5,10 +5,14 @@ import { StartInterviewRequest } from '@/types/interview';
 
 export async function POST(request: NextRequest) {
   try {
-    const body: StartInterviewRequest = await request.json();
+    const body = await request.json();
+    
+    // Support both field name formats for flexibility
+    const candidateName = body.candidateName || body.name;
+    const candidateEmail = body.candidateEmail || body.email;
     
     // Validate required fields
-    if (!body.candidateName || !body.candidateEmail) {
+    if (!candidateName || !candidateEmail) {
       return NextResponse.json(
         { error: 'Candidate name and email are required' },
         { status: 400 }
@@ -18,8 +22,8 @@ export async function POST(request: NextRequest) {
     // Create new interview session
     const interview = await prisma.interview.create({
       data: {
-        candidateName: body.candidateName,
-        candidateEmail: body.candidateEmail,
+        candidateName: candidateName,
+        candidateEmail: candidateEmail,
         status: 'IN_PROGRESS',
       },
     });
@@ -68,6 +72,11 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Error starting interview:', error);
+    console.error('Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      name: error instanceof Error ? error.name : undefined
+    });
     return NextResponse.json(
       { 
         error: 'Failed to start interview',
